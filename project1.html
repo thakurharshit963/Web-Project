@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Hand Movement Capture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;500;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --neon-cyan: #00fff7;
+    --neon-pink: #ff006e;
+    --neon-purple: #9d00ff;
+    --bg-deep: #020813;
+    --bg-panel: rgba(0, 255, 247, 0.03);
+    --grid-line: rgba(0, 255, 247, 0.08);
+    --text-dim: rgba(0, 255, 247, 0.5);
+  }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--neon-cyan);
+    font-family: 'Rajdhani', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    animation: gridScroll 20s linear infinite;
+    z-index: 0;
+  }
+
+  @keyframes gridScroll {
+    0% { background-position: 0 0; }
+    100% { background-position: 40px 40px; }
+  }
+
+  header {
+    position: relative;
+    z-index: 10;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--grid-line);
+    background: rgba(2, 8, 19, 0.8);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    color: var(--neon-cyan);
+    text-shadow: 0 0 20px var(--neon-cyan);
+  }
+
+  .logo span { color: var(--neon-pink); }
+
+  #status-bar {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    display: flex;
+    gap: 24px;
+  }
+
+  .status-item { display: flex; align-items: center; gap: 6px; }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    animation: pulse 2s infinite;
+  }
+  .dot.active { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+  .dot.warn { background: var(--neon-pink); box-shadow: 0 0 8px var(--neon-pink); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .main-area {
+    position: relative;
+    z-index: 5;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  /* ---- 3D Canvas ---- */
+  #canvas-wrap {
+    position: relative;
+    overflow: hidden;
+    border-right: 1px solid var(--grid-line);
+  }
+
+  #three-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Hidden webcam */
+  #webcam {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    width: 180px; height: 135px;
+    border: 1px solid rgba(0,255,247,0.2);
+    border-radius: 4px;
+    object-fit: cover;
+    opacity: 0.6;
+    z-index: 20;
+    transform: scaleX(-1);
+  }
+
+  #landmark-canvas {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    width: 180px; height: 135px;
+    z-index: 21;
+    transform: scaleX(-1);
+    pointer-events: none;
+  }
+
+  .corner-decor {
+    position: absolute;
+    width: 20px; height: 20px;
+    z-index: 15;
+  }
+  .corner-decor.tl { top: 12px; left: 12px; border-top: 2px solid var(--neon-cyan); border-left: 2px solid var(--neon-cyan); }
+  .corner-decor.tr { top: 12px; right: 12px; border-top: 2px solid var(--neon-cyan); border-right: 2px solid var(--neon-cyan); }
+  .corner-decor.bl { bottom: 12px; right: 12px; border-bottom: 2px solid var(--neon-cyan); right: 12px; left: auto; border-left: none; border-right: 2px solid var(--neon-cyan); }
+
+  /* ---- Side Panel ---- */
+  .side-panel {
+    background: var(--bg-panel);
+    backdrop-filter: blur(8px);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .panel-section {
+    padding: 18px;
+    border-bottom: 1px solid var(--grid-line);
+  }
+
+  .panel-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* Landmark grid */
+  .landmark-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
+
+  .finger-col { display: flex; flex-direction: column; gap: 3px; align-items: center; }
+
+  .finger-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+
+  .joint-dot {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,255,247,0.3);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    transition: all 0.15s;
+  }
+
+  .joint-dot.active {
+    background: rgba(0,255,247,0.15);
+    border-color: var(--neon-cyan);
+    color: var(--neon-cyan);
+    box-shadow: 0 0 8px rgba(0,255,247,0.3);
+  }
+
+  /* Coordinate readout */
+  .coord-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .coord-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .coord-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+
+  .coord-value {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--neon-cyan);
+    min-width: 60px;
+    text-align: right;
+  }
+
+  /* Gesture bar */
+  .gesture-box {
+    border: 1px solid rgba(0,255,247,0.15);
+    background: rgba(0,0,0,0.3);
+    padding: 12px;
+    border-radius: 2px;
+    text-align: center;
+  }
+
+  #gesture-name {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 1.1rem;
+    color: var(--neon-cyan);
+    text-shadow: 0 0 15px var(--neon-cyan);
+    letter-spacing: 0.1em;
+    min-height: 1.5rem;
+  }
+
+  #gesture-confidence {
+    margin-top: 8px;
+    height: 3px;
+    background: rgba(0,255,247,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  #confidence-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--neon-purple), var(--neon-cyan));
+    width: 0%;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 8px var(--neon-cyan);
+  }
+
+  /* Controls */
+  .controls { display: flex; flex-direction: column; gap: 10px; }
+
+  .ctrl-row { display: flex; align-items: center; justify-content: space-between; }
+
+  .ctrl-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100px; height: 3px;
+    background: rgba(0,255,247,0.15);
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--neon-cyan);
+    box-shadow: 0 0 8px var(--neon-cyan);
+    cursor: pointer;
+  }
+
+  .toggle-btn {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid rgba(0,255,247,0.3);
+    color: var(--text-dim);
+    cursor: pointer;
+    border-radius: 2px;
+    letter-spacing: 0.05em;
+    transition: all 0.2s;
+  }
+  .toggle-btn.on {
+    border-color: var(--neon-cyan);
+    color: var(--neon-cyan);
+    background: rgba(0,255,247,0.08);
+    box-shadow: 0 0 10px rgba(0,255,247,0.2);
+  }
+
+  .start-btn {
+    width: 100%;
+    padding: 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.15em;
+    background: transparent;
+    border: 1px solid var(--neon-cyan);
+    color: var(--neon-cyan);
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .start-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--neon-cyan);
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    opacity: 0.1;
+  }
+
+  .start-btn:hover::before { transform: translateX(0); }
+  .start-btn:hover { box-shadow: 0 0 20px rgba(0,255,247,0.3); }
+
+  .start-btn.running {
+    border-color: var(--neon-pink);
+    color: var(--neon-pink);
+  }
+
+  /* Floating label */
+  .floating-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 12;
+    pointer-events: none;
+    transition: opacity 0.5s;
+  }
+
+  .floating-label h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: var(--neon-cyan);
+    text-shadow: 0 0 30px var(--neon-cyan);
+    margin-bottom: 8px;
+  }
+
+  .floating-label p {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+
+  #loading-msg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--neon-cyan);
+    text-align: center;
+    z-index: 30;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  #loading-msg.visible { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">HAND<span>TRACK</span>.3D</div>
+  <div id="status-bar">
+    <div class="status-item">
+      <div class="dot" id="cam-dot"></div>
+      <span id="cam-status">CAMERA OFFLINE</span>
+    </div>
+    <div class="status-item">
+      <div class="dot" id="track-dot"></div>
+      <span id="track-status">TRACKING IDLE</span>
+    </div>
+    <div class="status-item">
+      <div class="dot active"></div>
+      <span id="fps-counter">-- FPS</span>
+    </div>
+  </div>
+</header>
+
+<div class="main-area">
+  <div id="canvas-wrap">
+    <canvas id="three-canvas"></canvas>
+    <video id="webcam" autoplay muted playsinline></video>
+    <canvas id="landmark-canvas"></canvas>
+    <div class="corner-decor tl"></div>
+    <div class="corner-decor tr"></div>
+    <div class="floating-label" id="idle-label">
+      <h2>AWAITING INPUT</h2>
+      <p>CLICK START CAPTURE TO BEGIN</p>
+    </div>
+    <div id="loading-msg">⟳ LOADING MEDIAPIPE MODEL...</div>
+  </div>
+
+  <div class="side-panel">
+    <!-- Gesture -->
+    <div class="panel-section">
+      <div class="panel-title">// GESTURE DETECTED</div>
+      <div class="gesture-box">
+        <div id="gesture-name">—</div>
+        <div id="gesture-confidence"><div id="confidence-fill"></div></div>
+      </div>
+    </div>
+
+    <!-- Joints -->
+    <div class="panel-section">
+      <div class="panel-title">// JOINT ACTIVITY</div>
+      <div class="landmark-grid" id="joint-grid"></div>
+    </div>
+
+    <!-- Coords -->
+    <div class="panel-section">
+      <div class="panel-title">// WRIST COORDINATES</div>
+      <div class="coord-grid">
+        <div class="coord-row">
+          <span class="coord-label">X AXIS</span>
+          <span class="coord-value" id="coord-x">—</span>
+        </div>
+        <div class="coord-row">
+          <span class="coord-label">Y AXIS</span>
+          <span class="coord-value" id="coord-y">—</span>
+        </div>
+        <div class="coord-row">
+          <span class="coord-label">Z DEPTH</span>
+          <span class="coord-value" id="coord-z">—</span>
+        </div>
+        <div class="coord-row">
+          <span class="coord-label">FINGERS UP</span>
+          <span class="coord-value" id="coord-fingers">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="panel-section">
+      <div class="panel-title">// VISUALIZATION</div>
+      <div class="controls">
+        <div class="ctrl-row">
+          <span class="ctrl-label">TRAIL LENGTH</span>
+          <input type="range" id="trail-len" min="10" max="200" value="80">
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">NODE SIZE</span>
+          <input type="range" id="node-size" min="1" max="10" value="4">
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">TRAILS</span>
+          <button class="toggle-btn on" id="trail-toggle">ON</button>
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">SKELETON</span>
+          <button class="toggle-btn on" id="skel-toggle">ON</button>
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">GLOW</span>
+          <button class="toggle-btn on" id="glow-toggle">ON</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <button class="start-btn" id="start-btn">▶ START CAPTURE</button>
+    </div>
+  </div>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- MediaPipe Hands -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+<script>
+// ─── Three.js Setup ───────────────────────────────────────────────
+const wrap = document.getElementById('canvas-wrap');
+const threeCanvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
+camera.position.set(0, 0, 2.5);
+
+// Resize
+function resizeRenderer() {
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+resizeRenderer();
+window.addEventListener('resize', resizeRenderer);
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x00fff7, 0.3));
+const ptLight = new THREE.PointLight(0x00fff7, 1, 10);
+ptLight.position.set(0, 0, 2);
+scene.add(ptLight);
+
+// ─── Hand connections (MediaPipe index pairs) ─────────────────────
+const CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],   // thumb
+  [0,5],[5,6],[6,7],[7,8],   // index
+  [5,9],[9,10],[10,11],[11,12], // middle
+  [9,13],[13,14],[14,15],[15,16], // ring
+  [13,17],[17,18],[18,19],[19,20], // pinky
+  [0,17]                          // palm base
+];
+
+// ─── 3D Hand Nodes & Bones ────────────────────────────────────────
+const NUM_LANDMARKS = 21;
+let showSkeleton = true, showTrails = true, showGlow = true;
+let nodeSize = 4;
+
+const nodeMeshes = [];
+const nodeGeo = new THREE.SphereGeometry(0.015, 8, 8);
+const nodeMat = new THREE.MeshPhongMaterial({
+  color: 0x00fff7, emissive: 0x00fff7, emissiveIntensity: 0.8,
+  transparent: true, opacity: 0.95
+});
+
+for (let i = 0; i < NUM_LANDMARKS; i++) {
+  const m = new THREE.Mesh(nodeGeo, nodeMat.clone());
+  m.visible = false;
+  scene.add(m);
+  nodeMeshes.push(m);
+}
+
+// Bone lines
+const boneMat = new THREE.LineBasicMaterial({ color: 0x00fff7, transparent: true, opacity: 0.6 });
+const boneMeshes = CONNECTIONS.map(() => {
+  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const line = new THREE.Line(geo, boneMat.clone());
+  line.visible = false;
+  scene.add(line);
+  return line;
+});
+
+// ─── Trails ──────────────────────────────────────────────────────
+const MAX_TRAIL = 200;
+let trailLen = 80;
+const trailPoints = Array.from({ length: NUM_LANDMARKS }, () => []);
+const trailLines = [];
+
+for (let i = 0; i < NUM_LANDMARKS; i++) {
+  const pts = Array(MAX_TRAIL).fill(new THREE.Vector3());
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const hue = (i / NUM_LANDMARKS) * 360;
+  const mat = new THREE.LineBasicMaterial({
+    color: new THREE.Color(`hsl(${hue}, 100%, 60%)`),
+    transparent: true, opacity: 0.25
+  });
+  const line = new THREE.Line(geo, mat);
+  line.visible = false;
+  scene.add(line);
+  trailLines.push(line);
+}
+
+// ─── Particle system for ambient background ───────────────────────
+const partGeo = new THREE.BufferGeometry();
+const partCount = 300;
+const partPos = new Float32Array(partCount * 3);
+for (let i = 0; i < partCount * 3; i++) partPos[i] = (Math.random() - 0.5) * 6;
+partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3));
+const partMat = new THREE.PointsMaterial({ color: 0x00fff7, size: 0.008, transparent: true, opacity: 0.2 });
+const particles = new THREE.Points(partGeo, partMat);
+scene.add(particles);
+
+// ─── Landmark → 3D coords ────────────────────────────────────────
+function lmTo3D(lm) {
+  // Flip x (mirror), center, scale
+  return new THREE.Vector3(
+    -(lm.x - 0.5) * 2.2,
+    -(lm.y - 0.5) * 2.2,
+    -lm.z * 2
+  );
+}
+
+// ─── Gesture detection ───────────────────────────────────────────
+function detectGesture(lms) {
+  if (!lms || lms.length < 21) return { name: '—', conf: 0 };
+
+  // Finger tip & pip indices
+  const tips =  [4, 8, 12, 16, 20];
+  const pips =  [3, 6, 10, 14, 18];
+  const mcps =  [2, 5, 9, 13, 17];
+
+  const extended = tips.map((t, i) => {
+    if (i === 0) return lms[t].x < lms[pips[i]].x; // thumb: horizontal
+    return lms[t].y < lms[pips[i]].y; // others: vertical
+  });
+
+  const count = extended.filter(Boolean).length;
+
+  if (count === 0) return { name: 'FIST', conf: 95 };
+  if (count === 5) return { name: 'OPEN HAND', conf: 98 };
+  if (extended[1] && !extended[0] && !extended[2] && !extended[3] && !extended[4]) return { name: 'POINTING', conf: 92 };
+  if (extended[1] && extended[2] && !extended[3] && !extended[4]) return { name: 'PEACE ✌', conf: 90 };
+  if (extended[0] && extended[1] && !extended[2] && !extended[3] && !extended[4]) return { name: 'L-SHAPE', conf: 88 };
+  if (!extended[0] && !extended[1] && !extended[2] && !extended[3] && extended[4]) return { name: 'PINKY UP', conf: 85 };
+  if (extended[0] && !extended[1] && !extended[2] && !extended[3] && extended[4]) return { name: 'SHAKA 🤙', conf: 93 };
+  if (count === 1 && extended[0]) return { name: 'THUMBS UP 👍', conf: 89 };
+  return { name: `${count} FINGERS`, conf: 80 };
+}
+
+// ─── Joint grid setup ────────────────────────────────────────────
+const FINGER_NAMES = ['THM','IDX','MID','RNG','PNK'];
+const JOINT_COUNTS = [4, 4, 4, 4, 4]; // per finger
+const grid = document.getElementById('joint-grid');
+const jointDots = [];
+FINGER_NAMES.forEach((name, fi) => {
+  const col = document.createElement('div');
+  col.className = 'finger-col';
+  const lbl = document.createElement('div');
+  lbl.className = 'finger-label';
+  lbl.textContent = name;
+  col.appendChild(lbl);
+  const dots = [];
+  for (let j = 0; j < JOINT_COUNTS[fi]; j++) {
+    const d = document.createElement('div');
+    d.className = 'joint-dot';
+    d.textContent = j + 1;
+    col.appendChild(d);
+    dots.push(d);
+  }
+  grid.appendChild(col);
+  jointDots.push(dots);
+});
+
+// ─── State ───────────────────────────────────────────────────────
+let isRunning = false, lastLandmarks = null;
+let fpsTime = performance.now(), frameCount = 0;
+
+// ─── MediaPipe ───────────────────────────────────────────────────
+const videoEl = document.getElementById('webcam');
+const lmCanvas = document.getElementById('landmark-canvas');
+const lmCtx = lmCanvas.getContext('2d');
+let mpHands = null, mpCamera = null;
+
+function onHandResults(results) {
+  // Draw 2D overlay
+  lmCtx.clearRect(0, 0, lmCanvas.width, lmCanvas.height);
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const lms = results.multiHandLandmarks[0];
+    lastLandmarks = lms;
+
+    // Update 3D
+    update3DHand(lms);
+
+    // Update UI
+    const gesture = detectGesture(lms);
+    document.getElementById('gesture-name').textContent = gesture.name;
+    document.getElementById('confidence-fill').style.width = gesture.conf + '%';
+    document.getElementById('coord-x').textContent = lms[0].x.toFixed(3);
+    document.getElementById('coord-y').textContent = lms[0].y.toFixed(3);
+    document.getElementById('coord-z').textContent = lms[0].z.toFixed(3);
+
+    // Count extended fingers
+    const tips = [4, 8, 12, 16, 20], pips = [3, 6, 10, 14, 18];
+    let up = 0;
+    tips.forEach((t, i) => {
+      if (i === 0 ? lms[t].x < lms[pips[i]].x : lms[t].y < lms[pips[i]].y) up++;
+    });
+    document.getElementById('coord-fingers').textContent = up;
+
+    // Joint dot activity
+    const fingerLmIdx = [
+      [1,2,3,4], [5,6,7,8], [9,10,11,12], [13,14,15,16], [17,18,19,20]
+    ];
+    fingerLmIdx.forEach((ids, fi) => {
+      ids.forEach((lmIdx, ji) => {
+        const d = jointDots[fi][ji];
+        const lm = lms[lmIdx];
+        const isActive = lm.y < lms[0].y - 0.1;
+        d.classList.toggle('active', isActive);
+      });
+    });
+
+    // Track dot status
+    document.getElementById('track-dot').classList.add('active');
+    document.getElementById('track-dot').classList.remove('warn');
+    document.getElementById('track-status').textContent = 'TRACKING ACTIVE';
+
+    // 2D landmarks overlay
+    drawConnectors(lmCtx, lms, HAND_CONNECTIONS, { color: 'rgba(0,255,247,0.4)', lineWidth: 1 });
+    drawLandmarks(lmCtx, lms, { color: '#00fff7', lineWidth: 1, radius: 2 });
+
+    document.getElementById('idle-label').style.opacity = '0';
+  } else {
+    // No hand
+    document.getElementById('track-dot').classList.remove('active');
+    document.getElementById('track-dot').classList.add('warn');
+    document.getElementById('track-status').textContent = 'NO HAND DETECTED';
+    document.getElementById('gesture-name').textContent = '—';
+    document.getElementById('confidence-fill').style.width = '0%';
+    nodeMeshes.forEach(m => m.visible = false);
+    boneMeshes.forEach(b => b.visible = false);
+    trailLines.forEach(t => t.visible = false);
+    document.getElementById('idle-label').style.opacity = '1';
+  }
+}
+
+function update3DHand(lms) {
+  const positions = lms.map(lmTo3D);
+
+  // Nodes
+  positions.forEach((pos, i) => {
+    const m = nodeMeshes[i];
+    m.position.copy(pos);
+    m.visible = showSkeleton;
+    const s = nodeSize / 4;
+    m.scale.setScalar(s);
+  });
+
+  // Bones
+  CONNECTIONS.forEach(([a, b], i) => {
+    const line = boneMeshes[i];
+    line.visible = showSkeleton;
+    const pts = line.geometry.attributes.position;
+    pts.setXYZ(0, positions[a].x, positions[a].y, positions[a].z);
+    pts.setXYZ(1, positions[b].x, positions[b].y, positions[b].z);
+    pts.needsUpdate = true;
+  });
+
+  // Trails
+  positions.forEach((pos, i) => {
+    trailPoints[i].unshift(pos.clone());
+    if (trailPoints[i].length > trailLen) trailPoints[i].length = trailLen;
+
+    const line = trailLines[i];
+    line.visible = showTrails;
+    const pts = line.geometry.attributes.position;
+    trailPoints[i].forEach((p, j) => pts.setXYZ(j, p.x, p.y, p.z));
+    for (let j = trailPoints[i].length; j < MAX_TRAIL; j++) {
+      const last = trailPoints[i][trailPoints[i].length - 1] || pos;
+      pts.setXYZ(j, last.x, last.y, last.z);
+    }
+    pts.needsUpdate = true;
+    line.material.opacity = showTrails ? 0.25 : 0;
+  });
+}
+
+async function startCapture() {
+  const loadMsg = document.getElementById('loading-msg');
+  loadMsg.classList.add('visible');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    videoEl.srcObject = stream;
+    await new Promise(r => videoEl.onloadedmetadata = r);
+    lmCanvas.width = videoEl.videoWidth;
+    lmCanvas.height = videoEl.videoHeight;
+
+    document.getElementById('cam-dot').classList.add('active');
+    document.getElementById('cam-status').textContent = 'CAMERA ONLINE';
+
+    mpHands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    mpHands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.5
+    });
+    mpHands.onResults(onHandResults);
+
+    mpCamera = new Camera(videoEl, {
+      onFrame: async () => { await mpHands.send({ image: videoEl }); },
+      width: 640, height: 480
+    });
+    mpCamera.start();
+    loadMsg.classList.remove('visible');
+    isRunning = true;
+
+    const btn = document.getElementById('start-btn');
+    btn.textContent = '■ STOP CAPTURE';
+    btn.classList.add('running');
+  } catch (e) {
+    loadMsg.textContent = '⚠ CAMERA ACCESS DENIED';
+    console.error(e);
+  }
+}
+
+function stopCapture() {
+  if (mpCamera) mpCamera.stop();
+  if (videoEl.srcObject) videoEl.srcObject.getTracks().forEach(t => t.stop());
+  isRunning = false;
+  document.getElementById('cam-dot').classList.remove('active');
+  document.getElementById('cam-status').textContent = 'CAMERA OFFLINE';
+  document.getElementById('track-dot').classList.remove('active', 'warn');
+  document.getElementById('track-status').textContent = 'TRACKING IDLE';
+  nodeMeshes.forEach(m => m.visible = false);
+  boneMeshes.forEach(b => b.visible = false);
+  trailLines.forEach(t => t.visible = false);
+  document.getElementById('idle-label').style.opacity = '1';
+  const btn = document.getElementById('start-btn');
+  btn.textContent = '▶ START CAPTURE';
+  btn.classList.remove('running');
+}
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  isRunning ? stopCapture() : startCapture();
+});
+
+// ─── Controls ────────────────────────────────────────────────────
+document.getElementById('trail-len').addEventListener('input', e => trailLen = +e.target.value);
+document.getElementById('node-size').addEventListener('input', e => nodeSize = +e.target.value);
+
+function makeToggle(id, getter, setter, mats) {
+  document.getElementById(id).addEventListener('click', function() {
+    setter(!getter());
+    this.textContent = getter() ? 'ON' : 'OFF';
+    this.classList.toggle('on', getter());
+  });
+}
+
+makeToggle('trail-toggle', () => showTrails, v => showTrails = v);
+makeToggle('skel-toggle', () => showSkeleton, v => showSkeleton = v);
+makeToggle('glow-toggle', () => showGlow, v => {
+  showGlow = v;
+  nodeMeshes.forEach(m => { m.material.emissiveIntensity = v ? 0.8 : 0; });
+  boneMeshes.forEach(b => { b.material.opacity = v ? 0.6 : 0.3; });
+});
+
+// ─── Animate ─────────────────────────────────────────────────────
+let t = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  t += 0.005;
+
+  // Gentle camera orbit when no hand
+  if (!lastLandmarks || !isRunning) {
+    camera.position.x = Math.sin(t * 0.3) * 0.2;
+    camera.position.y = Math.cos(t * 0.2) * 0.1;
+    camera.lookAt(0, 0, 0);
+  } else {
+    camera.position.set(0, 0, 2.5);
+    camera.lookAt(0, 0, 0);
+  }
+
+  particles.rotation.y += 0.0003;
+  particles.rotation.x += 0.0001;
+
+  // FPS
+  frameCount++;
+  const now = performance.now();
+  if (now - fpsTime > 1000) {
+    document.getElementById('fps-counter').textContent = frameCount + ' FPS';
+    frameCount = 0;
+    fpsTime = now;
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>

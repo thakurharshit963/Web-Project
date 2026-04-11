@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SNAKE</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #030a0e;
+    --grid: #071520;
+    --accent: #00ffe0;
+    --dim: #1a4a5a;
+    --score-bg: #040f16;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Press Start 2P', monospace;
+    overflow: hidden;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.07) 2px,rgba(0,0,0,0.07) 4px);
+    pointer-events: none; z-index: 100;
+  }
+  .bg-grid {
+    position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(0,255,224,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,224,0.03) 1px,transparent 1px);
+    background-size: 40px 40px; pointer-events: none;
+  }
+  .title {
+    font-family: 'Orbitron', monospace; font-weight: 900;
+    font-size: clamp(1.8rem,5vw,3rem); color: var(--accent);
+    letter-spacing: 0.3em;
+    text-shadow: 0 0 10px var(--accent),0 0 40px rgba(0,255,224,0.4);
+    margin-bottom: 18px; animation: titlePulse 3s ease-in-out infinite;
+  }
+  @keyframes titlePulse {
+    0%,100%{text-shadow:0 0 10px var(--accent),0 0 40px rgba(0,255,224,0.4);}
+    50%{text-shadow:0 0 22px var(--accent),0 0 60px rgba(0,255,224,0.6);}
+  }
+  .hud { display:flex; gap:30px; margin-bottom:14px; }
+  .hud-box {
+    background:var(--score-bg); border:1px solid var(--dim);
+    padding:8px 18px; text-align:center;
+    clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%);
+  }
+  .hud-label{font-size:6px;color:var(--dim);letter-spacing:0.2em;margin-bottom:5px;}
+  .hud-value{font-size:15px;color:var(--accent);text-shadow:0 0 8px var(--accent);min-width:55px;display:block;}
+
+  .game-wrapper{position:relative;}
+  .corner{position:absolute;width:18px;height:18px;border-color:var(--accent);border-style:solid;z-index:10;opacity:0.7;}
+  .corner.tl{top:-5px;left:-5px;border-width:2px 0 0 2px;}
+  .corner.tr{top:-5px;right:-5px;border-width:2px 2px 0 0;}
+  .corner.bl{bottom:-5px;left:-5px;border-width:0 0 2px 2px;}
+  .corner.br{bottom:-5px;right:-5px;border-width:0 2px 2px 0;}
+
+  canvas {
+    display:block;
+    border:1px solid rgba(0,255,224,0.15);
+    box-shadow:0 0 20px rgba(0,255,224,0.1),0 0 60px rgba(0,255,224,0.04);
+    background:var(--grid); image-rendering:pixelated;
+  }
+
+  .msg-overlay {
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(3,10,14,0.9); z-index:20;
+    backdrop-filter:blur(3px); transition:opacity 0.4s;
+  }
+  .msg-overlay.hidden{opacity:0;pointer-events:none;}
+
+  .msg-title {
+    font-family:'Orbitron',monospace; font-weight:900;
+    font-size:clamp(1rem,3vw,1.6rem); color:var(--accent);
+    letter-spacing:0.2em; text-shadow:0 0 20px var(--accent); margin-bottom:10px;
+  }
+
+  /* ── BIG NOOB text ── */
+  .noob-text {
+    font-family:'Orbitron',monospace; font-weight:900;
+    font-size:clamp(2.5rem,10vw,5rem);
+    color:#ff3b6f; letter-spacing:0.12em;
+    text-shadow:0 0 20px #ff0044,0 0 55px #ff0044,0 0 100px rgba(255,0,68,0.4);
+    margin-bottom:14px; display:none;
+  }
+  .noob-text.show{display:block;animation:noobPop 0.7s cubic-bezier(.17,.67,.41,1.4) both;}
+  @keyframes noobPop {
+    0%  {transform:scale(0.2) rotate(-8deg);opacity:0;}
+    60% {transform:scale(1.18) rotate(3deg);opacity:1;}
+    80% {transform:scale(0.95) rotate(-1deg);}
+    100%{transform:scale(1) rotate(0deg);opacity:1;}
+  }
+
+  .msg-sub{font-size:7px;color:var(--dim);letter-spacing:0.15em;margin-bottom:22px;text-align:center;line-height:2.2;}
+  .msg-score{font-size:10px;color:#fff;margin-bottom:18px;display:none;}
+
+  .btn {
+    font-family:'Press Start 2P',monospace; font-size:9px;
+    background:transparent; border:1px solid var(--accent);
+    color:var(--accent); padding:11px 26px; cursor:pointer;
+    letter-spacing:0.15em;
+    clip-path:polygon(6px 0%,100% 0%,calc(100% - 6px) 100%,0% 100%);
+    transition:all 0.2s; text-shadow:0 0 8px var(--accent);
+    box-shadow:0 0 12px rgba(0,255,224,0.2);
+  }
+  .btn:hover{background:rgba(0,255,224,0.1);box-shadow:0 0 24px rgba(0,255,224,0.4);transform:scale(1.05);}
+
+  .controls-hint{margin-top:14px;font-size:6px;color:var(--dim);letter-spacing:0.1em;text-align:center;line-height:2.5;}
+
+  .level-flash {
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    font-family:'Orbitron',monospace;font-weight:900;font-size:1.8rem;color:var(--accent);
+    text-shadow:0 0 30px var(--accent);pointer-events:none;opacity:0;z-index:30;white-space:nowrap;
+  }
+  .level-flash.show{animation:levelFlash 1.2s ease-out forwards;}
+  @keyframes levelFlash{
+    0%{opacity:0;transform:translate(-50%,-50%) scale(0.5);}
+    30%{opacity:1;transform:translate(-50%,-50%) scale(1.1);}
+    70%{opacity:1;transform:translate(-50%,-50%) scale(1);}
+    100%{opacity:0;transform:translate(-50%,-50%) scale(1.2);}
+  }
+
+  .mobile-controls{display:none;margin-top:18px;gap:6px;flex-direction:column;align-items:center;}
+  .mobile-row{display:flex;gap:6px;}
+  .dpad-btn{
+    width:50px;height:50px;background:rgba(0,255,224,0.05);border:1px solid var(--dim);
+    color:var(--accent);font-size:18px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    clip-path:polygon(6px 0%,100% 0%,calc(100% - 6px) 100%,0% 100%);
+    transition:background 0.15s;-webkit-tap-highlight-color:transparent;user-select:none;
+  }
+  .dpad-btn:active{background:rgba(0,255,224,0.2);}
+  @media(max-width:600px){.mobile-controls{display:flex;}.title{font-size:1.4rem;}}
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="title">SNAKE</div>
+
+<div class="hud">
+  <div class="hud-box"><div class="hud-label">SCORE</div><span class="hud-value" id="score">0</span></div>
+  <div class="hud-box"><div class="hud-label">HIGH</div><span class="hud-value" id="highscore">0</span></div>
+  <div class="hud-box"><div class="hud-label">LEVEL</div><span class="hud-value" id="level">1</span></div>
+</div>
+
+<div class="game-wrapper">
+  <div class="corner tl"></div><div class="corner tr"></div>
+  <div class="corner bl"></div><div class="corner br"></div>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <div class="msg-overlay" id="overlay">
+    <div class="msg-title"  id="overlayTitle">SNAKE</div>
+    <div class="noob-text"  id="noobText">N O O B</div>
+    <div class="msg-sub"    id="overlaySub">ARROW KEYS / WASD TO MOVE<br>EAT FOOD. GROW. SURVIVE.</div>
+    <div class="msg-score"  id="overlayScore"></div>
+    <button class="btn" id="startBtn" onclick="startGame()">START GAME</button>
+    <div class="controls-hint">↑ W &nbsp;|&nbsp; ↓ S &nbsp;|&nbsp; ← A &nbsp;|&nbsp; → D</div>
+  </div>
+
+  <div class="level-flash" id="levelFlash">LEVEL UP!</div>
+</div>
+
+<div class="mobile-controls">
+  <div class="mobile-row"><div class="dpad-btn" ontouchstart="setDir(0,-1)" onclick="setDir(0,-1)">▲</div></div>
+  <div class="mobile-row">
+    <div class="dpad-btn" ontouchstart="setDir(-1,0)" onclick="setDir(-1,0)">◄</div>
+    <div class="dpad-btn" ontouchstart="setDir(0,1)"  onclick="setDir(0,1)">▼</div>
+    <div class="dpad-btn" ontouchstart="setDir(1,0)"  onclick="setDir(1,0)">►</div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════ AUDIO ENGINE ══════════════════ */
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let ac = null;
+function getAC(){ if(!ac) ac = new AudioCtx(); return ac; }
+
+function playEat(){
+  try{
+    const a=getAC(), o=a.createOscillator(), g=a.createGain();
+    o.connect(g); g.connect(a.destination);
+    o.frequency.setValueAtTime(880,a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(1320,a.currentTime+0.06);
+    g.gain.setValueAtTime(0.22,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.1);
+    o.start(); o.stop(a.currentTime+0.1);
+  }catch(e){}
+}
+
+function playLevelUp(){
+  try{
+    const a=getAC();
+    [523,659,784,1047].forEach((f,i)=>{
+      const o=a.createOscillator(),g=a.createGain();
+      o.connect(g);g.connect(a.destination);
+      o.frequency.value=f; o.type='triangle';
+      const t=a.currentTime+i*0.1;
+      g.gain.setValueAtTime(0.22,t);
+      g.gain.exponentialRampToValueAtTime(0.001,t+0.18);
+      o.start(t);o.stop(t+0.2);
+    });
+  }catch(e){}
+}
+
+/* ── SAD TROMBONE "wah-wah-wah-waaah" NOOB SOUND ── */
+function playNoobSound(){
+  try{
+    const a = getAC();
+
+    // Four descending "wah" notes like a sad trombone
+    const notes = [
+      { freq:466, t:0.00, dur:0.30 },
+      { freq:415, t:0.30, dur:0.30 },
+      { freq:370, t:0.60, dur:0.30 },
+      { freq:220, t:0.90, dur:1.10 },   // long low note
+    ];
+
+    notes.forEach(n => {
+      const osc  = a.createOscillator();
+      const gain = a.createGain();
+      osc.type = 'sawtooth';  // brass / trombone timbre
+      osc.connect(gain); gain.connect(a.destination);
+
+      const t = a.currentTime + n.t;
+      osc.frequency.setValueAtTime(n.freq, t);
+      // pitch droops slightly – the "wah" slide
+      osc.frequency.exponentialRampToValueAtTime(n.freq * 0.90, t + n.dur * 0.85);
+
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.35, t + 0.035);
+      gain.gain.setValueAtTime(0.35, t + n.dur - 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + n.dur);
+      osc.start(t); osc.stop(t + n.dur + 0.02);
+    });
+
+    // Vibrato wobble on the long last note (makes it feel extra pathetic)
+    const vibLFO  = a.createOscillator();
+    const vibGain = a.createGain();
+    vibLFO.frequency.value = 7;        // 7 Hz wobble
+    vibGain.gain.value      = 14;
+    vibLFO.connect(vibGain);
+
+    const mainOsc  = a.createOscillator();
+    const mainGain = a.createGain();
+    mainOsc.type = 'sawtooth';
+    vibGain.connect(mainOsc.frequency);
+    mainOsc.connect(mainGain); mainGain.connect(a.destination);
+
+    const t0 = a.currentTime + 0.90;
+    mainOsc.frequency.value = 220;
+    mainGain.gain.setValueAtTime(0.20, t0);
+    mainGain.gain.exponentialRampToValueAtTime(0.001, t0 + 1.1);
+    vibLFO.start(t0);  vibLFO.stop(t0 + 1.15);
+    mainOsc.start(t0); mainOsc.stop(t0 + 1.15);
+
+  }catch(e){}
+}
+
+/* ══════════════════ GAME SETUP ══════════════════ */
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+const CELL=20, COLS=25, ROWS=25;
+canvas.width=COLS*CELL; canvas.height=ROWS*CELL;
+
+let snake,dir,nextDir,food,score,highScore,level,speed,gameLoop,running,particles;
+highScore = parseInt(localStorage.getItem('snakeHigh')||'0');
+document.getElementById('highscore').textContent = highScore;
+
+function init(){
+  snake=[{x:12,y:12},{x:11,y:12},{x:10,y:12}];
+  dir=nextDir={x:1,y:0}; score=0; level=1; speed=140; particles=[];
+  placeFood(); updateHUD();
+}
+
+function placeFood(){
+  let p;
+  do{p={x:Math.floor(Math.random()*COLS),y:Math.floor(Math.random()*ROWS)};}
+  while(snake.some(s=>s.x===p.x&&s.y===p.y));
+  food=p;
+}
+
+function startGame(){
+  getAC(); // unlock AudioContext on user gesture
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('noobText').classList.remove('show');
+  init(); running=true;
+  clearInterval(gameLoop);
+  gameLoop=setInterval(tick,speed);
+}
+
+function tick(){
+  dir=nextDir;
+  const h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+  if(h.x<0||h.x>=COLS||h.y<0||h.y>=ROWS) return gameOver();
+  if(snake.some(s=>s.x===h.x&&s.y===h.y))  return gameOver();
+  snake.unshift(h);
+  if(h.x===food.x&&h.y===food.y){
+    score+=10*level;
+    playEat();
+    spawnParticles(food.x*CELL+CELL/2,food.y*CELL+CELL/2,'#ff3b6f');
+    placeFood(); updateHUD(); checkLevel();
+  } else { snake.pop(); }
+  draw();
+}
+
+function checkLevel(){
+  const nl=Math.floor(score/100)+1;
+  if(nl>level){
+    level=nl;
+    clearInterval(gameLoop);
+    speed=Math.max(55,140-(level-1)*12);
+    gameLoop=setInterval(tick,speed);
+    playLevelUp(); flashLevel(); updateHUD();
+  }
+}
+
+function flashLevel(){
+  const el=document.getElementById('levelFlash');
+  el.textContent='LEVEL '+level+'!';
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
+
+function updateHUD(){
+  document.getElementById('score').textContent=score;
+  document.getElementById('level').textContent=level;
+  if(score>highScore){
+    highScore=score;
+    localStorage.setItem('snakeHigh',highScore);
+    document.getElementById('highscore').textContent=highScore;
+  }
+}
+
+function gameOver(){
+  clearInterval(gameLoop); running=false;
+  spawnParticles(snake[0].x*CELL+CELL/2,snake[0].y*CELL+CELL/2,'#00ffe0',30);
+
+  // 🔊 PLAY NOOB SOUND IMMEDIATELY
+  playNoobSound();
+
+  setTimeout(()=>{
+    document.getElementById('overlay').classList.remove('hidden');
+    document.getElementById('overlayTitle').textContent='GAME OVER';
+    document.getElementById('overlaySub').textContent='YOU WERE '+(snake.length-3)+' PIECES LONG';
+    // Show big NOOB text
+    const noob=document.getElementById('noobText');
+    noob.classList.add('show');
+    const sc=document.getElementById('overlayScore');
+    sc.style.display='block'; sc.textContent='SCORE: '+score;
+    document.getElementById('startBtn').textContent='TRY AGAIN';
+  },400);
+}
+
+/* ─── Particles ─── */
+function spawnParticles(x,y,color,count=12){
+  for(let i=0;i<count;i++){
+    const ang=(Math.PI*2/count)*i+Math.random()*0.5;
+    const spd=1.5+Math.random()*2.5;
+    particles.push({x,y,vx:Math.cos(ang)*spd,vy:Math.sin(ang)*spd,life:1,decay:0.04+Math.random()*0.03,size:3+Math.random()*3,color});
+  }
+}
+
+/* ─── Rendering ─── */
+function draw(){
+  ctx.fillStyle='#040e16'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='rgba(0,255,224,0.04)';
+  for(let x=0;x<COLS;x++) for(let y=0;y<ROWS;y++)
+    ctx.fillRect(x*CELL+CELL/2-1,y*CELL+CELL/2-1,2,2);
+  drawFood(); drawSnake(); drawParticles();
+}
+
+function drawFood(){
+  const cx=food.x*CELL+CELL/2,cy=food.y*CELL+CELL/2,pulse=Math.sin(Date.now()/400)*2;
+  const gr=ctx.createRadialGradient(cx,cy,0,cx,cy,CELL*0.9+pulse);
+  gr.addColorStop(0,'rgba(255,59,111,0.6)'); gr.addColorStop(1,'rgba(255,59,111,0)');
+  ctx.fillStyle=gr; ctx.beginPath(); ctx.arc(cx,cy,CELL*0.9+pulse,0,Math.PI*2); ctx.fill();
+  const r=CELL*0.35+pulse*0.3;
+  ctx.shadowBlur=12; ctx.shadowColor='#ff0044'; ctx.fillStyle='#ff3b6f';
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.shadowBlur=0;
+  ctx.beginPath(); ctx.arc(cx-r*0.25,cy-r*0.25,r*0.3,0,Math.PI*2); ctx.fill();
+}
+
+function drawSnake(){
+  snake.forEach((seg,i)=>{
+    const isHead=i===0,t=i/snake.length;
+    const g2=isHead?255:Math.floor(191*(1-t*0.6));
+    const b2=isHead?224:Math.floor(165*(1-t*0.6));
+    ctx.shadowBlur=isHead?16:6;
+    ctx.shadowColor=`rgba(0,${g2},${b2},${isHead?0.5:0.2})`;
+    ctx.fillStyle=`rgb(0,${g2},${b2})`;
+    const pad=isHead?1:2,size=CELL-pad*2;
+    roundRect(ctx,seg.x*CELL+pad,seg.y*CELL+pad,size,size,isHead?5:4);
+    ctx.fill();
+    if(isHead){
+      ctx.shadowBlur=0;
+      let ex1,ey1,ex2,ey2;
+      if(dir.x===1)       {ex1=seg.x*CELL+CELL-5;ey1=seg.y*CELL+5;  ex2=seg.x*CELL+CELL-5;ey2=seg.y*CELL+CELL-8;}
+      else if(dir.x===-1) {ex1=seg.x*CELL+2;     ey1=seg.y*CELL+5;  ex2=seg.x*CELL+2;     ey2=seg.y*CELL+CELL-8;}
+      else if(dir.y===-1) {ex1=seg.x*CELL+5;     ey1=seg.y*CELL+2;  ex2=seg.x*CELL+CELL-8;ey2=seg.y*CELL+2;}
+      else                {ex1=seg.x*CELL+5;     ey1=seg.y*CELL+CELL-5;ex2=seg.x*CELL+CELL-8;ey2=seg.y*CELL+CELL-5;}
+      ctx.fillStyle='#000';
+      ctx.beginPath();ctx.arc(ex1,ey1,3,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(ex2,ey2,3,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,0.8)';
+      ctx.beginPath();ctx.arc(ex1+1,ey1-1,1.2,0,Math.PI*2);ctx.fill();
+      ctx.beginPath();ctx.arc(ex2+1,ey2-1,1.2,0,Math.PI*2);ctx.fill();
+    }
+  });
+  ctx.shadowBlur=0;
+}
+
+function drawParticles(){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.vx*=0.92;p.vy*=0.92;p.life-=p.decay;
+    if(p.life<=0){particles.splice(i,1);continue;}
+    ctx.globalAlpha=p.life;ctx.fillStyle=p.color;
+    ctx.shadowBlur=8;ctx.shadowColor=p.color;
+    ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  ctx.globalAlpha=1;ctx.shadowBlur=0;
+}
+
+function roundRect(c,x,y,w,h,r){
+  c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);
+  c.quadraticCurveTo(x+w,y,x+w,y+r);c.lineTo(x+w,y+h-r);
+  c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);c.lineTo(x+r,y+h);
+  c.quadraticCurveTo(x,y+h,x,y+h-r);c.lineTo(x,y+r);
+  c.quadraticCurveTo(x,y,x+r,y);c.closePath();
+}
+
+// idle animation loop
+(function idleLoop(){ requestAnimationFrame(idleLoop); })();
+
+/* ─── Keyboard Controls ─── */
+document.addEventListener('keydown',e=>{
+  switch(e.key){
+    case 'ArrowUp':   case 'w':case 'W': if(dir.y!== 1)nextDir={x:0,y:-1};break;
+    case 'ArrowDown': case 's':case 'S': if(dir.y!==-1)nextDir={x:0,y: 1};break;
+    case 'ArrowLeft': case 'a':case 'A': if(dir.x!== 1)nextDir={x:-1,y:0};break;
+    case 'ArrowRight':case 'd':case 'D': if(dir.x!==-1)nextDir={x: 1,y:0};break;
+    case ' ':case 'Enter': if(!running)startGame();break;
+  }
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))e.preventDefault();
+});
+
+/* ─── Touch / Swipe ─── */
+let ts=null;
+canvas.addEventListener('touchstart',e=>{ts={x:e.touches[0].clientX,y:e.touches[0].clientY};e.preventDefault();},{passive:false});
+canvas.addEventListener('touchend',e=>{
+  if(!ts)return;
+  const dx=e.changedTouches[0].clientX-ts.x,dy=e.changedTouches[0].clientY-ts.y;
+  if(Math.abs(dx)>Math.abs(dy)){if(dx>20&&dir.x!==-1)nextDir={x:1,y:0};else if(dx<-20&&dir.x!==1)nextDir={x:-1,y:0};}
+  else{if(dy>20&&dir.y!==-1)nextDir={x:0,y:1};else if(dy<-20&&dir.y!==1)nextDir={x:0,y:-1};}
+  ts=null;e.preventDefault();
+},{passive:false});
+
+function setDir(x,y){
+  if(x!==0&&dir.x!==-x)nextDir={x,y};
+  if(y!==0&&dir.y!==-y)nextDir={x,y};
+}
+
+init(); draw();
+</script>
+</body>
+</html>
